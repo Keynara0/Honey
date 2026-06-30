@@ -20,8 +20,9 @@ const CONFIG = {
   HONEYPOT_CHANNEL_ID: process.env.HONEYPOT_CHANNEL_ID,
   LOG_CHANNEL_ID: process.env.LOG_CHANNEL_ID,
   LOGO_URL: process.env.LOGO_URL || '',
-  ACTION: process.env.ACTION || 'kick', // 'kick' atau 'ban'
-  DATA_FILE: './data.json',
+  ACTION: (process.env.ACTION || 'kick').toLowerCase(), // 'kick' atau 'ban'
+  DATA_FILE: process.env.DATA_FILE || './data.json', // gunakan '/data/data.json' kalau pakai Railway Volume
+  INITIAL_KICK_COUNT: parseInt(process.env.INITIAL_KICK_COUNT || '0', 10),
 };
 
 // Validasi env wajib
@@ -39,10 +40,16 @@ function loadData() {
   try {
     if (fs.existsSync(CONFIG.DATA_FILE)) {
       const raw = fs.readFileSync(CONFIG.DATA_FILE, 'utf8');
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      if (typeof parsed.kickCount === 'number') {
+        return parsed;
+      }
     }
-  } catch {}
-  return { kickCount: 0 };
+  } catch (err) {
+    console.error('⚠️ Gagal load data.json, fallback ke nilai awal:', err.message);
+  }
+  // Fallback kalau file belum ada / rusak: pakai INITIAL_KICK_COUNT
+  return { kickCount: CONFIG.INITIAL_KICK_COUNT };
 }
 
 function saveData() {
@@ -56,7 +63,7 @@ function saveData() {
 let { kickCount } = loadData();
 let honeypotMessageId = null;
 
-console.log(`📂 Data dimuat. Ban count: ${kickCount}`);
+console.log(`📂 Data dimuat dari ${CONFIG.DATA_FILE}. Ban/Kick count: ${kickCount}`);
 
 client.once('clientReady', async () => {
   console.log(`✅ Bot online: ${client.user.tag}`);
@@ -118,12 +125,14 @@ async function initHoneypotMessage() {
   const channel = await client.channels.fetch(CONFIG.HONEYPOT_CHANNEL_ID);
   if (!channel) return console.error('❌ Channel tidak ditemukan!');
 
+  // Hapus pesan bot lama
   const messages = await channel.messages.fetch({ limit: 20 });
   const botMessages = messages.filter(m => m.author.id === client.user.id);
   for (const [, msg] of botMessages) {
     try { await msg.delete(); } catch {}
   }
 
+  // Kirim pesan baru
   const res = await client.rest.post(
     `/channels/${CONFIG.HONEYPOT_CHANNEL_ID}/messages`,
     { body: buildPayload() }
@@ -163,7 +172,7 @@ client.on('messageCreate', async (message) => {
     }
 
     kickCount++;
-    saveData();
+    saveData(); // simpan ke file
     console.log(`🔨 ${CONFIG.ACTION} ${message.author.tag} | Total: ${kickCount}`);
 
     await updateMessage();
