@@ -23,6 +23,12 @@ const CONFIG = {
   ACTION: (process.env.ACTION || 'kick').toLowerCase(), // 'kick' atau 'ban'
   DATA_FILE: process.env.DATA_FILE || './data.json', // gunakan '/data/data.json' kalau pakai Railway Volume
   INITIAL_KICK_COUNT: parseInt(process.env.INITIAL_KICK_COUNT || '0', 10),
+
+  // Member count voice channel
+  GUILD_ID: process.env.GUILD_ID,
+  MEMBER_COUNT_CHANNEL_ID: process.env.MEMBER_COUNT_CHANNEL_ID,
+  MEMBER_COUNT_FORMAT: process.env.MEMBER_COUNT_FORMAT || '👥All Members: {count}',
+  MEMBER_COUNT_UPDATE_INTERVAL: parseInt(process.env.MEMBER_COUNT_UPDATE_INTERVAL || '600000', 10), // default 10 menit (ms)
 };
 
 // Validasi env wajib
@@ -68,6 +74,11 @@ console.log(`📂 Data dimuat dari ${CONFIG.DATA_FILE}. Ban/Kick count: ${kickCo
 client.once('clientReady', async () => {
   console.log(`✅ Bot online: ${client.user.tag}`);
   await initHoneypotMessage();
+
+  // Update member count channel pertama kali saat bot start
+  await updateMemberCountChannel();
+  // Update berkala (default tiap 10 menit, sesuai limit rename channel Discord)
+  setInterval(updateMemberCountChannel, CONFIG.MEMBER_COUNT_UPDATE_INTERVAL);
 });
 
 // ===================== BUILD PAYLOAD =====================
@@ -193,6 +204,28 @@ async function sendLog(user) {
       .setTimestamp();
     await logChannel.send({ embeds: [logEmbed] });
   } catch {}
+}
+
+// ===================== MEMBER COUNT VOICE CHANNEL =====================
+async function updateMemberCountChannel() {
+  if (!CONFIG.GUILD_ID || !CONFIG.MEMBER_COUNT_CHANNEL_ID) return;
+
+  try {
+    const guild = await client.guilds.fetch(CONFIG.GUILD_ID);
+    const memberCount = guild.memberCount;
+
+    const channel = await guild.channels.fetch(CONFIG.MEMBER_COUNT_CHANNEL_ID);
+    if (!channel) return console.error('❌ Member count channel tidak ditemukan!');
+
+    const newName = CONFIG.MEMBER_COUNT_FORMAT.replace('{count}', memberCount.toLocaleString('en-US'));
+
+    if (channel.name !== newName) {
+      await channel.setName(newName);
+      console.log(`👥 Member count channel diupdate: ${newName}`);
+    }
+  } catch (err) {
+    console.error('❌ Gagal update member count channel:', err.message);
+  }
 }
 
 client.login(CONFIG.TOKEN);
